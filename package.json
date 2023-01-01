@@ -1,6 +1,6 @@
 {
   "name": "bsi",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Aplikasi scrapper Bank BSI",
   "main": "app.js",
   "scripts": {

@@ -253,21 +253,21 @@ const func = {
 
 const dataRekening = {
     has: () => {
-        storage.has('list-rekening', function(error, hasKey) {
+        storage.has('list-rekening-bsi', function(error, hasKey) {
             if (error) throw error;
           
             if (!hasKey) {
-                storage.set('list-rekening', [], function(error) {
+                storage.set('list-rekening-bsi', [], function(error) {
                     if (error) throw error;
                 });
             }
         });
     },
     get: () => {
-        return storage.getSync('list-rekening');
+        return storage.getSync('list-rekening-bsi');
     },
     put: (data) => {
-        storage.set('list-rekening', data, function(error) {
+        storage.set('list-rekening-bsi', data, function(error) {
             if (error) throw error;
         });
     },
@@ -282,7 +282,7 @@ const dataRekening = {
             return e;
         });
         
-        storage.set('list-rekening', data, function(error) {
+        storage.set('list-rekening-bsi', data, function(error) {
             if (error) throw error;
         });
 
