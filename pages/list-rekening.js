@@ -59,7 +59,9 @@ function setTable(data) {
                 var index = dataRekening.findIndex(e => e.username == username);
                 dataRekening[index].status = true;
                 ipcRenderer.send("put-list-rekening", dataRekening);
-                ipcRenderer.send("play-mutasi");
+                setTimeout(() => {
+                    ipcRenderer.send("play-mutasi");
+                }, 500);
             })
 
             tableRekening.find("tbody").append(tr);

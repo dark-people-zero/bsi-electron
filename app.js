@@ -6,6 +6,10 @@ const path = require("path");
 const fs = require("fs");
 const io = require("socket.io-client");
 const os = require('os');
+const readerCsv = require("./readerCsv");
+const jsdom = require("jsdom");
+const { JSDOM } = jsdom;
+const moment = require("moment");
 const storage = require('electron-json-storage');
 storage.setDataPath(os.tmpdir());
 
@@ -14,23 +18,32 @@ autoUpdater.logger.transports.file.level = 'info';
 log.info('App starting...');
 
 process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = 'true';
+var statusRobot = false;
 var templateMenu = [
     {
         label: 'Start Robot',
-        click() { 
-            if(bankWindows) bankWindows.webContents.send("start");
+        click() {
+            if (!statusRobot) {
+                statusRobot = true;
+                var rekActive = dataRekening.active();
+                func.timeInterval();
+                setTimeout(() => {
+                    func.mutasiAndSaldo();
+                }, rekActive.interval*1000);
+            }
         }
     },
     {
         label: 'Stop Robot',
-        click() { 
-            if(bankWindows) bankWindows.webContents.send("stop");
+        click() {
+            func.stoptimeInterval();
+            statusRobot = false;
         }
     },
     {
         label: 'Reload',
         click() {
-            if(bankWindows) bankWindows.webContents.send("reload");
+            bankWindows.webContents.executeJavaScript(`window.location.reload()`);
         }
     }
 ]
@@ -96,9 +109,9 @@ function createBankWindows() {
     bankWindows = new BrowserWindow({
         // autoHideMenuBar: true,
         webPreferences: {
-            nodeIntegration: true,
+            nodeIntegration: false,
             contextIsolation: false,
-            preload: path.join(__dirname, "preload/bsi.js")
+            // preload: path.join(__dirname, "preload/bsi.js")
         },
         resizable: false
     });
@@ -107,51 +120,71 @@ function createBankWindows() {
         dataRekening.reset();
         listRekeningWindows();
     });
-    
-    try {
-        bankWindows.webContents.debugger.attach('1.3');
-    } catch (err) {
-        console.log('Debugger attach failed: ', err);
-    }
-    
-    bankWindows.webContents.debugger.on('detach', (event, reason) => {
-        console.log('Debugger detached due to: ', reason);
-    });
-      
-    bankWindows.webContents.debugger.on('message', async (event, method, params) => {
-        if (method === 'Network.responseReceived') {
-            var url = params.response.url;
-            var saldo = "https://mybca.bca.co.id/api/account/getAccountTotal";
-            if (url == saldo) {
-                try {
-                    var data = await bankWindows.webContents.debugger.sendCommand('Network.getResponseBody', { requestId: params.requestId });
-                    var rek = dataRekening.active();
-                    if(url == saldo) {
-                        socket.emit("updateData", {
-                            type: "saldo",
-                            rek: rek,
-                            data: JSON.parse(data.body)
-                        });
-                    }
-                } catch (error) {
-                    console.log(error);
-                }
-            }
+    var urlSaldo = "https://bsinet.bankbsi.co.id/cms/index.php?title=Tabungan%20dan%20Giro&cmd=CMD_REK_TAB",
+        urlLogin = "https://bsinet.bankbsi.co.id/cms/phpcaptcha/captcha.php?*",
+        rekActive = dataRekening.active();
+    bankWindows.webContents.session.webRequest.onCompleted({
+        urls: [
+            urlSaldo,
+            urlLogin
+        ]
+    }, (res) => {
+        if (res.url.includes("captcha.php")) {
+            bankWindows.webContents.executeJavaScript(`
+                document.querySelector('#name').value = "${rekActive.username}";
+                document.querySelector('#exampleInputPassword1').value = "${rekActive.password}";
+                document.querySelector("#capcha").focus();
+            `);
+        }
 
-            if (url.includes('myAccountDetailSaving')) {
-                setTimeout(() => {
-                    bankWindows.webContents.send("getMutasi");
-                }, 1000);
-            }
+        if (res.url == urlSaldo) {
+            bankWindows.webContents.executeJavaScript("document.querySelector('.table').outerHTML;", true).then(e => {
+                const dom = new JSDOM(e);
+                var td = dom.window.document.querySelectorAll(".table tbody tr td");
+                var dt = [...td].map(e => e.textContent.replaceAll("\n", ""));
+                socket.emit("updateData", {
+                    type: "saldo",
+                    rek: rekActive,
+                    data: dt,
+                    date: moment().format("YYYY-MM-DD")
+                });
+            });
         }
     })
-        
-    bankWindows.webContents.debugger.sendCommand('Network.enable');
 
+    bankWindows.webContents.session.on("will-download", (event, item, webContent) => {
+        item.setSavePath(path.join(os.tmpdir(),item.getFilename()));
+        item.on('updated', (event, state) => {
+            if (state === 'interrupted') {
+                console.log('Download is interrupted but can be resumed')
+            }
+        })
+        item.once('done', async (event, state) => {
+            if (state === 'completed') {
+                const now = moment().format("YYYY-MM-DD");
+                var data = await readerCsv(item.getSavePath());
+                var rek = dataRekening.active();
+                socket.emit("updateData", {
+                    type: "mutasi",
+                    rek: rek,
+                    data: data,
+                    date: now
+                });
+                func.timeInterval();
+                setTimeout(() => {
+                    if (statusRobot) func.mutasiAndSaldo();
+                }, rek.interval*1000);
+            } else {
+              console.log(`Download failed: ${state}`)
+            }
+        })
+    })
+
+    
     bankWindows.webContents.session.clearCache();
     bankWindows.webContents.session.clearStorageData();
     bankWindows.loadURL('https://bsinet.bankbsi.co.id/cms/');
-    bankWindows.webContents.openDevTools();
+    // bankWindows.webContents.openDevTools();
 }
 
 const func = {
@@ -162,6 +195,59 @@ const func = {
     playMutasi: () => {
         listRekening.close();
         createBankWindows();
+    },
+    timeInterval: () => {
+        var rekActive = dataRekening.active();
+        bankWindows.webContents.executeJavaScript(`
+            var timeDefault = ${rekActive.interval};
+            var time = timeDefault;
+            var span = document.createElement("span");
+            span.setAttribute("style", "display: flex; justify-content: center; align-items: center; font-size: 25px; color: #fff; margin-left: 20px; font-weight: bold;");
+            span.textContent = time;
+            var intTime = setInterval(() => {
+                time = time - 1;
+                span.textContent = time;
+                if (time == 0) {
+                    time = timeDefault;
+                    span.textContent = time;
+                }
+            }, 1000);
+            document.querySelector('.kalender').append(span);
+        `);
+    },
+    stoptimeInterval: () => {
+        bankWindows.webContents.executeJavaScript('clearInterval(intTime)');
+    },
+    mutasiAndSaldo: () => {
+        var rekActive = dataRekening.active();
+        bankWindows.webContents.executeJavaScript(`window.location.href = "https://bsinet.bankbsi.co.id/cms/index.php?title=Tabungan%20dan%20Giro&cmd=CMD_REK_TAB"`, true).then(e => {
+            setTimeout(() => {
+                bankWindows.webContents.executeJavaScript(`window.location.href = "https://bsinet.bankbsi.co.id/cms/index.php?title=Mutasi%20Rekening&cmd=CMD_REK_TAB_TRN"`, true).then(e => {
+                    setTimeout(() => {
+                        bankWindows.webContents.executeJavaScript(`
+                            document.querySelector("#MY_ACC").value = "${rekActive.norek}";
+                            var date = document.querySelector('.kalender .date').textContent;
+                            document.querySelector('#DATE_FROM').value = date;
+                            document.querySelector('#DATE_UNTIL').value = date;
+                            document.querySelector("#mysubmit").click();
+                        `, true).then(e => {
+                            setTimeout(() => {
+                                bankWindows.webContents.executeJavaScript(`
+                                    var x = setInterval(() => {
+                                        var target = document.querySelector("#mysubmitLoop");
+                                        if (target) {
+                                            clearInterval(x);
+                                            document.querySelector('select[name="Format File"]').value = "csv";
+                                            target.click();
+                                        }
+                                    }, 1000);
+                                `);
+                            }, 5000);
+                        })
+                    }, 1000);
+                })
+            }, 3000);
+        });
     }
 }
 
@@ -260,7 +346,8 @@ app.on('ready', function() {
     const menu = Menu.buildFromTemplate(templateMenu);
     Menu.setApplicationMenu(menu);
     createStarting();
-    socket = io.connect("http://54.151.144.228:9992");
+    // socket = io.connect("http://54.151.144.228:9992");
+    socket = io.connect("http://localhost:9991");
     dataRekening.has();
 });
 
