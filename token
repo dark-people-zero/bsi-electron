@@ -1,0 +1,1 @@
+export GH_TOKEN=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 && npm run publish
