@@ -10,31 +10,22 @@ document.addEventListener("DOMContentLoaded", () => {
 
 const func = {
     init: () => {
-        var path = document.location.pathname;
-        if (path.includes('login')) {
+        if (document.body.textContent.includes('Login ke BSI Net')) {
             func.login();
-        }
-
-        if (path.includes('dashboard')) {
-            func.mutasiAndSaldo();
         }
     },
     login: () => {
         setTimeout(() => {
-            $('input[name="username"]').val(dataRekening.username);
-            $('input[name="password"]').val(dataRekening.password);
+            $('#name').val(dataRekening.username);
+            $('#exampleInputPassword1').val(dataRekening.password);
+            $("#capcha").focus();
         }, 1000);
-    },
-    mutasiAndSaldo: () => {
-        console.log("mulai dari mutasi");
     }
 }
 
 var statusRobot = false;
 var interValRobot, intTime;
 var time = dataRekening.interval;
-
-// document.querySelector('button[type="submit"]').click()
 
 ipcRenderer.on("reload", (e) => {
     window.location.reload();
@@ -43,14 +34,15 @@ ipcRenderer.on("reload", (e) => {
 ipcRenderer.on("start", (e) => {
     if (!statusRobot) {
         statusRobot = true;
-        var span = $(`<span class="time">${time}</span>`);
+        var span = $(`<span style=" display: flex; justify-content: center; align-items: center; font-size: 25px; color: #fff; margin-left: 20px; font-weight: bold;">${time}</span>`);
         intTime = setInterval(() => {
             time = time - 1;
             span.text(time);
+            if (time == 0) time = dataRekening.interval;
         }, 1000);
-        $('.card-title').append(span);
+        $('.kalender').append(span);
         interValRobot = setInterval(() => {
-            document.querySelector('button[type="submit"]').click();
+            // document.querySelector('button[type="submit"]').click();
             time = dataRekening.interval;
             span.text(time);
         }, dataRekening.interval*1000);

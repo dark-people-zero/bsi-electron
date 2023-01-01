@@ -9,7 +9,6 @@ const os = require('os');
 const storage = require('electron-json-storage');
 storage.setDataPath(os.tmpdir());
 
-
 autoUpdater.logger = log;
 autoUpdater.logger.transports.file.level = 'info';
 log.info('App starting...');
@@ -99,7 +98,7 @@ function createBankWindows() {
         webPreferences: {
             nodeIntegration: true,
             contextIsolation: false,
-            preload: path.join(__dirname, "preload/mybca.js")
+            preload: path.join(__dirname, "preload/bsi.js")
         },
         resizable: false
     });
@@ -148,7 +147,11 @@ function createBankWindows() {
     })
         
     bankWindows.webContents.debugger.sendCommand('Network.enable');
-    bankWindows.loadURL('https://mybca.bca.co.id/auth/login');
+
+    bankWindows.webContents.session.clearCache();
+    bankWindows.webContents.session.clearStorageData();
+    bankWindows.loadURL('https://bsinet.bankbsi.co.id/cms/');
+    bankWindows.webContents.openDevTools();
 }
 
 const func = {
