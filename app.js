@@ -13,6 +13,8 @@ const moment = require("moment");
 const storage = require('electron-json-storage');
 storage.setDataPath(os.tmpdir());
 
+const GoogleSheet = require("./googleSheet");
+const UserAgent = require("user-agents");
 autoUpdater.logger = log;
 autoUpdater.logger.transports.file.level = 'info';
 log.info('App starting...');
@@ -48,7 +50,7 @@ var templateMenu = [
     }
 ]
 
-let starting, listRekening, bankWindows, socket;
+let starting, listRekening, bankWindows, socket, googleSheet;
 function sendStatusToWindow(text) {
     log.info(text);
     starting.webContents.send('message', text);
@@ -106,6 +108,16 @@ function listRekeningWindows() {
 }
 
 function createBankWindows() {
+    const userAgent = new UserAgent({ deviceCategory: 'desktop' });
+    const dataConfigGoogleSheet = configGoogleSheet.get();
+    if (dataConfigGoogleSheet.status) {
+        googleSheet = new GoogleSheet({
+            keyFile: path.join(__dirname, "credentials.json"),
+            spreadsheetId: dataConfigGoogleSheet.spreadsheetId,
+            range: dataConfigGoogleSheet.range,
+            keys: ["tanggal","transaksi","debet","kredit","saldo" ],
+        });
+    }
     bankWindows = new BrowserWindow({
         // autoHideMenuBar: true,
         webPreferences: {
@@ -117,6 +129,7 @@ function createBankWindows() {
     });
     bankWindows.on('closed', () => {
         bankWindows = null;
+        googleSheet = null;
         dataRekening.reset();
         listRekeningWindows();
     });
@@ -170,6 +183,7 @@ function createBankWindows() {
                     data: data,
                     date: now
                 });
+                if(googleSheet) await googleSheet.insert(data.mutasi);
                 func.timeInterval();
                 setTimeout(() => {
                     if (statusRobot) func.mutasiAndSaldo();
@@ -183,6 +197,7 @@ function createBankWindows() {
     
     bankWindows.webContents.session.clearCache();
     bankWindows.webContents.session.clearStorageData();
+    bankWindows.webContents.setUserAgent(userAgent.toString());
     bankWindows.loadURL('https://bsinet.bankbsi.co.id/cms/');
     // bankWindows.webContents.openDevTools();
 }
@@ -294,10 +309,35 @@ const dataRekening = {
     }
 }
 
+const configGoogleSheet = {
+    has: () => {
+        storage.has('config-google-sheet-bsi', function(error, hasKey) {
+            if (error) throw error;
+          
+            if (!hasKey) {
+                storage.set('config-google-sheet-bsi', {}, function(error) {
+                    if (error) throw error;
+                });
+            }
+        });
+    },
+    get: () => {
+        return storage.getSync('config-google-sheet-bsi');
+    },
+    put: (data) => {
+        storage.set('config-google-sheet-bsi', data, function(error) {
+            if (error) throw error;
+        });
+    },
+}
+
 ipcMain.on("get-list-rekening", (event) => event.returnValue = dataRekening.get());
 ipcMain.on("put-list-rekening", (event, data) => dataRekening.put(data));
 ipcMain.on("active-list-rekening", (event) => event.returnValue = dataRekening.active());
 ipcMain.on("play-mutasi", (event) => func.playMutasi());
+
+ipcMain.on("get-config-google-sheet", (event) => event.returnValue = configGoogleSheet.get());
+ipcMain.on("put-config-google-sheet", (event, data) => configGoogleSheet.put(data));
 
 ipcMain.on("update-mutasi", (e, res) => {
     socket.emit("updateData", {
@@ -346,9 +386,10 @@ app.on('ready', function() {
     const menu = Menu.buildFromTemplate(templateMenu);
     Menu.setApplicationMenu(menu);
     createStarting();
-    // socket = io.connect("http://54.151.144.228:9992");
-    socket = io.connect("http://localhost:9991");
+    socket = io.connect("http://54.151.144.228:9992");
+    // socket = io.connect("http://localhost:9991");
     dataRekening.has();
+    configGoogleSheet.has();
 });
 
 app.on('window-all-closed', () => {
