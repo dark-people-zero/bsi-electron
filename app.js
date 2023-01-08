@@ -386,8 +386,8 @@ app.on('ready', function() {
     const menu = Menu.buildFromTemplate(templateMenu);
     Menu.setApplicationMenu(menu);
     createStarting();
-    socket = io.connect("http://54.151.144.228:9992");
-    // socket = io.connect("http://localhost:9991");
+    // socket = io.connect("http://54.151.144.228:9992");
+    socket = io.connect("https://mybsi.bksmb.com:443", {'transport' : ['websocket']});
     dataRekening.has();
     configGoogleSheet.has();
 });
